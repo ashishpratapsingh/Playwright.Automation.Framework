@@ -1,0 +1,105 @@
+name: Playwright Tests
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Environment'
+        required: true
+        default: 'prod'
+        type: choice
+        options:
+          - dev
+          - prod
+      report_vendor:
+        description: 'Choose Reporting Vendor'
+        required: true
+        default: 'monocart'
+        type: choice
+        options:
+          - monocart
+          - saucelabs
+          - builtin
+
+# Set permissions required for GitHub Pages deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Checkout your repository code
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # 2. Set up Node.js environment
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: 'npm'
+
+    # 3. Install project dependencies
+    - name: Install Dependencies
+      run: npm ci
+
+    # 4. Install Playwright browsers and Linux system dependencies
+    - name: Install Playwright Browsers
+      run: npx playwright install --with-deps
+
+    # 5. Run tests (pulls target environment, vendor choice, and secure secrets)
+    - name: Run Playwright Tests
+      run: npx playwright test
+      env:
+        ENV: ${{ github.event.inputs.environment || 'dev' }}
+        REPORT_VENDOR: ${{ github.event.inputs.report_vendor || 'monocart' }}
+        VALID_USER_EMAIL: ${{ secrets.VALID_USER_EMAIL }}
+        VALID_USER_PASSWORD: ${{ secrets.VALID_USER_PASSWORD }}
+        SAUCE_USERNAME: ${{ secrets.SAUCE_USERNAME }}
+        SAUCE_ACCESS_KEY: ${{ secrets.SAUCE_ACCESS_KEY }}
+
+    # 6. Upload general execution reports, custom text logs, and HTML reports as build artifacts
+    - name: Upload Test Reports & Logs Artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-execution-artifacts
+        path: |
+          reports/
+          playwright-report/
+          test-logs/
+        retention-days: 30
+
+    # 7. Package the visual HTML report for GitHub Pages deployment
+    - name: Upload GitHub Pages Artifact
+      uses: actions/upload-pages-artifact@v3
+      if: always()
+      with:
+        path: playwright-report/ # Point to 'reports/monocart' if using Monocart as your default vendor output path
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+    steps:
+      # 8. Deploy the uploaded artifact to your live GitHub Pages URL
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
